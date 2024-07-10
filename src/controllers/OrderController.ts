@@ -4,11 +4,29 @@ import Restaurant, { MenuItemType } from "../models/restaurant";
 import Order from "../models/order";
 
 
+
 const STRIPE = new Stripe(process.env.STRIPE_API_KEY as string);
 
 const FRONTEND_URL = process.env.FRONTEND_URL as string;
 
 const STRIPE_ENDPOINT_SECRET= process.env.STRIPE_WEBHOOK_SECRET as string;
+
+
+const getMyOrders = async (req: Request, res: Response) => {
+    try {
+      
+        const orders = await Order.find({ user: req.userId })
+            .populate("restaurant")
+            .populate("user");
+          
+            res.json(orders);
+
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: "Something went wrong"});
+    }
+};
+
 
 type CheckoutSessionRequest = {
     cartItems: {
@@ -29,6 +47,7 @@ type CheckoutSessionRequest = {
 const stripeWebhookHandler = async (req: Request, res: Response) => {
 
     let event;
+
    try {
 
     const sig = req.headers["stripe-signature"];
@@ -40,7 +59,7 @@ const stripeWebhookHandler = async (req: Request, res: Response) => {
 
    } catch (error: any) {
      console.log(error);
-    return res.status(500).send(`Wenhook error: ${error.message}`);
+    return res.status(400).send(`Webhook error: ${error.message}`);
    }
 
    if (event.type === "checkout.session.completed") {
@@ -48,7 +67,7 @@ const stripeWebhookHandler = async (req: Request, res: Response) => {
     const order = await Order.findById(event.data.object.metadata?.orderId);
 
       if (!order) {
-        return res.status(500).json({ message: "Order not found"});
+        return res.status(404).json({ message: "Order not found" });
       }   
 
       order.totalAmount = event.data.object.amount_total;
@@ -114,10 +133,6 @@ const createCheckoutSession = async (req: Request, res: Response) => {
 
 const createLineItems = (checkoutSessionRequest: CheckoutSessionRequest, menuItems: MenuItemType[]
     ) => {
-        // 1 for each cartitem get menuItem object from restaurant
-        // to get price
-        // 2 each cartItem convert => stripe lineItem 
-        // 3 return line item array
 
         const lineItems = checkoutSessionRequest.cartItems.map((cartItem) => {
             const menuItem = menuItems.find((item) => item._id.toString() === cartItem.menuItemId.toString());
@@ -170,13 +185,14 @@ const createLineItems = (checkoutSessionRequest: CheckoutSessionRequest, menuIte
                 restaurantId,
             },
             success_url: `${FRONTEND_URL}/order-status?success=true`,
-            cancel_url: `${FRONTEND_URL}/detail/${restaurantId}?cancelled=true`
+            cancel_url: `${FRONTEND_URL}/detail/${restaurantId}?cancelled=true`,
         });
 
         return sessionData;
     };
 
     export default {
-        stripeWebhookHandler,
+        getMyOrders,
         createCheckoutSession,
+        stripeWebhookHandler,
     };
